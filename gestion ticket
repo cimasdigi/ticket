@@ -1,0 +1,165 @@
+import os
+import re
+import tkinter as tk
+from tkinter import messagebox, scrolledtext
+from openpyxl import load_workbook
+
+
+def extraer_datos_mensaje(texto_mensaje):
+    # Diccionario de expresiones regulares para capturar el valor después de cada etiqueta
+    patrones = {
+        "Ticket": r"Ticket\s*([\d]+)",
+        "Id Instalación": r"Id Instalación:\s*([\d]+)",
+        "Id Cliente": r"Id Cliente:\s*([\d]+)",
+        "Tipo de Instalación": r"Tipo de Instalación:\s*'([^']+)'",
+        "Nombre del Cliente": r"Nombre del Cliente:\s*'([^']+)'",
+        "Telefono del Cliente": r"Telefono del Cliente:\s*'([^']+)'",
+        "Dirección del Cliente": r"Dirección del Cliente:\s*'([^']+)'",
+        "Instalador": r"Instalador:\s*'([^']+)'",
+        "Teléfono del instalador": r"Teléfono del instalador:\s*'([^']+)'",
+        "Tipo de CTO": r"Tipo de CTO:\s*'([^']+)'",
+        "CTO": r"CTO:\s*'([^']+)'",
+        "Localización del CTO": r"Localización del CTO:\s*'([^']+)'",
+        "CDP": r"CDP:\s*'([^']*)'|CDP:\s*,",
+        "Localización del CDP": r"Localización del CDP:\s*'([^']*)'|Localización del CDP:\s*,",
+        "Cliente en espera": r"Cliente en espera:\s*([^\n,]+)",
+        "Autorizado por Supervisor": r"Autorizado por Supervisor:\s*'([^']+)'",
+        "¿Se ha dado el primer alta?": r"¿Se ha dado el primer alta\?:\s*([^\n,]+)",
+        "¿Es necesaria obra?": r"¿Es necesaria obra\?:\s*([^\n,]+)",
+        "¿Se puede serviciar por NEBA?": r"¿Se puede serviciar por NEBA\?:\s*([^\n,]+)",
+        "Permiso de Actuación": r"Permiso de Actuación:\s*([^\n,]+)",
+        "Motivo": r"Motivo:\s*'([^']+)'",
+        "Motivo del trabajo a realizar (Descripción)": r"Motivo del trabajo a realizar \(Descripción\):\s*'([^']+)'",
+    }
+
+    datos = {}
+    for clave, patron in patrones.items():
+        match = re.search(patron, texto_mensaje, re.DOTALL)
+        if match:
+            # Limpiamos saltos de línea intermedios del texto plano
+            valor = (
+                match.group(1) if match.group(1) is not None else match.group(2)
+            )
+            datos[clave] = valor.strip().replace("\n", " ")
+        else:
+            datos[clave] = ""
+    return datos
+
+
+def procesar_y_guardar():
+    texto = txt_mensaje.get("1.0", tk.END).strip()
+    if not texto:
+        messagebox.showwarning(
+            "Texto Vacío", "Por favor, pega el mensaje antes de continuar."
+        )
+        return
+
+    ruta_excel = "Control_Tickets_Telecomunicaciones.xlsx"
+
+    if not os.path.exists(ruta_excel):
+        messagebox.showerror(
+            "Archivo no encontrado",
+            f"No se encuentra '{ruta_excel}' en esta misma carpeta.\nPor favor, colócalo al lado de este programa.",
+        )
+        return
+
+    try:
+        datos = extraer_datos_mensaje(texto)
+
+        # Si no detecta al menos el número de ticket, avisamos por seguridad
+        if not datos["Ticket"]:
+            messagebox.showwarning(
+                "Formato incorrecto",
+                "No se pudo detectar el número de 'Ticket' en el texto. Revisa el formato.",
+            )
+            return
+
+        wb = load_workbook(ruta_excel)
+        ws = wb.active
+
+        orden_columnas = [
+            "Ticket",
+            "Id Instalación",
+            "Id Cliente",
+            "Tipo de Instalación",
+            "Nombre del Cliente",
+            "Telefono del Cliente",
+            "Dirección del Cliente",
+            "Instalador",
+            "Teléfono del instalador",
+            "Tipo de CTO",
+            "CTO",
+            "Localización del CTO",
+            "CDP",
+            "Localización del CDP",
+            "Cliente en espera",
+            "Autorizado por Supervisor",
+            "¿Se ha dado el primer alta?",
+            "¿Es necesaria obra?",
+            "¿Se puede serviciar por NEBA?",
+            "Permiso de Actuación",
+            "Motivo",
+            "Motivo del trabajo a realizar (Descripción)",
+        ]
+
+        nueva_fila = [datos.get(col, "") for col in orden_columnas]
+        ultima_fila = ws.max_row
+        siguiente_fila = ultima_fila + 1
+
+        # Escribir datos y heredar estilos de la fila de arriba
+        for col_idx, valor in enumerate(nueva_fila, start=1):
+            celda = ws.cell(row=siguiente_fila, column=col_idx, value=valor)
+            celda_anterior = ws.cell(row=ultima_fila, column=col_idx)
+            if celda_anterior.has_style:
+                celda.font = celda_anterior.font.copy()
+                celda.border = celda_anterior.border.copy()
+                celda.alignment = celda_anterior.alignment.copy()
+                celda.fill = celda_anterior.fill.copy()
+
+        wb.save(ruta_excel)
+
+        # Limpiar el cuadro de texto tras el éxito y avisar
+        txt_mensaje.delete("1.0", tk.END)
+        messagebox.showinfo(
+            "¡Éxito!", f"Ticket {datos['Ticket']} añadido en la fila {siguiente_fila}."
+        )
+
+    except Exception as e:
+        messagebox.showerror(
+            "Error", f"Ocurrió un error al guardar en el Excel:\n{str(e)}"
+        )
+
+
+# --- Configuración de la Ventana Gráfica ---
+ventana = tk.Tk()
+ventana.title("Inyector de Tickets a Excel")
+ventana.geometry("650x500")
+ventana.configure(bg="#f0f2f5")
+
+lbl_instrucciones = tk.Label(
+    ventana,
+    text="Pega el mensaje de texto completo aquí abajo:",
+    bg="#f0f2f5",
+    font=("Arial", 11, "bold"),
+)
+lbl_instrucciones.pack(pady=10)
+
+txt_mensaje = scrolledtext.ScrolledText(
+    ventana, width=75, height=20, font=("Consolas", 10)
+)
+txt_mensaje.pack(pady=5, px=10)
+
+btn_procesar = tk.Button(
+    ventana,
+    text="Insertar Registro en Excel",
+    command=procesar_y_guardar,
+    bg="#1a73e8",
+    fg="white",
+    font=("Arial", 11, "bold"),
+    padx=15,
+    pady=8,
+    cursor="hand2",
+)
+btn_procesar.pack(pady=15)
+
+ventana.mainloop()
